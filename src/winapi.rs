@@ -1,14 +1,24 @@
 use std::rc::Rc;
-
-use windows::Win32::{
-    Foundation::{HANDLE, HMODULE},
-    System::{
-        Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-            TH32CS_SNAPPROCESS,
+use windows::{
+    core::PCSTR,
+    Win32::{
+        Foundation::{HANDLE, HMODULE},
+        System::{
+            Diagnostics::{
+                Debug::WriteProcessMemory,
+                ToolHelp::{
+                    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+                    TH32CS_SNAPPROCESS,
+                },
+            },
+            LibraryLoader::{GetModuleHandleA, GetProcAddress},
+            Memory::{VirtualAllocEx, VirtualFreeEx, MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE},
+            ProcessStatus::EnumProcessModules,
+            Threading::{
+                CreateRemoteThread, OpenProcess, WaitForSingleObject, INFINITE,
+                LPTHREAD_START_ROUTINE, PROCESS_ALL_ACCESS,
+            },
         },
-        ProcessStatus::EnumProcessModules,
-        Threading::{OpenProcess, PROCESS_ALL_ACCESS},
     },
 };
 
@@ -20,21 +30,27 @@ pub struct WindowProcess {
 pub unsafe fn enum_processes() -> Result<Vec<WindowProcess>, windows::core::Error> {
     let hsnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)?;
     let mut result = Vec::new();
-    let mut lppe = std::mem::zeroed();
+    let mut lppe: PROCESSENTRY32W = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
     Process32FirstW(hsnapshot, &mut lppe)?;
     loop {
-        if &lppe as *const PROCESSENTRY32W == std::ptr::null() {
+        result.push(to_process(&lppe));
+        let ok = Process32NextW(hsnapshot, &mut lppe);
+        if ok.is_err() {
             break;
         }
-        result.push(to_process(&lppe));
-        Process32NextW(hsnapshot, &mut lppe)?;
     }
     Ok(result)
 }
 fn to_process(pe: &PROCESSENTRY32W) -> WindowProcess {
     WindowProcess {
         pid: pe.th32ProcessID,
-        name: String::from_utf16(&pe.szExeFile).unwrap(),
+        name: String::from_utf16(&pe.szExeFile)
+            .unwrap()
+            .trim_end_matches(char::from(0))
+            .to_string(),
         moudle_id: pe.th32ModuleID,
     }
 }
@@ -66,4 +82,45 @@ pub unsafe fn enum_process_modules(
             module,
         })
         .collect())
+}
+pub unsafe fn inject_dll(pid: u32, dll: &str) -> Result<(), windows::core::Error> {
+    let process = OpenProcess(PROCESS_ALL_ACCESS, false, pid)?;
+    let mut data: Vec<u8> = dll.into();
+    data.push(b'\0');
+    let dll: PCSTR = PCSTR(data.as_ptr());
+    let written_address = VirtualAllocEx(
+        process,
+        None,
+        std::mem::size_of_val(&dll),
+        MEM_COMMIT,
+        PAGE_READWRITE,
+    );
+    WriteProcessMemory(
+        process,
+        written_address,
+        dll.0 as *const core::ffi::c_void,
+        std::mem::size_of_val(&dll),
+        None,
+    )?;
+    let loading = CreateRemoteThread(
+        process,
+        None,
+        0,
+        std::mem::transmute::<_, LPTHREAD_START_ROUTINE>(GetProcAddress(
+            GetModuleHandleA(windows::core::s!("kernel32.dll"))?,
+            windows::core::s!("LoadLibraryA"),
+        )),
+        Some(written_address),
+        0,
+        None,
+    )?;
+    WaitForSingleObject(loading, INFINITE);
+    VirtualFreeEx(
+        process,
+        written_address,
+        std::mem::size_of_val(&dll),
+        MEM_RELEASE,
+    )?;
+
+    Ok(())
 }

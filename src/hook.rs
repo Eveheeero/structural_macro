@@ -36,7 +36,10 @@ pub struct Hook(HHOOK);
 impl Hook {
     pub unsafe fn new() -> Self {
         let processes = crate::winapi::enum_processes().unwrap();
-        let process = processes.iter().find(|p| p.name == "explorer.exe").unwrap();
+        let process = processes
+            .iter()
+            .find(|p| p.name.ends_with("explorer.exe"))
+            .unwrap();
         let module = crate::winapi::enum_process_modules(process.pid).unwrap();
         let hook = SetWindowsHookExW(WH_GETMESSAGE, Some(hook), module[0].module, 0)
             .expect("Failed to hook");
