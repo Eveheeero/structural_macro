@@ -1,8 +1,8 @@
-use std::rc::Rc;
+use std::{pin::Pin, rc::Rc};
 use windows::{
-    core::PCSTR,
+    core::{PCSTR, PCWSTR},
     Win32::{
-        Foundation::{HANDLE, HMODULE},
+        Foundation::{HANDLE, HMODULE, HWND, LPARAM, WPARAM},
         System::{
             Diagnostics::{
                 Debug::WriteProcessMemory,
@@ -14,10 +14,14 @@ use windows::{
             LibraryLoader::{GetModuleHandleA, GetProcAddress},
             Memory::{VirtualAllocEx, VirtualFreeEx, MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE},
             ProcessStatus::EnumProcessModules,
+            SystemServices::MK_LBUTTON,
             Threading::{
                 CreateRemoteThread, OpenProcess, WaitForSingleObject, INFINITE,
                 LPTHREAD_START_ROUTINE, PROCESS_ALL_ACCESS,
             },
+        },
+        UI::WindowsAndMessaging::{
+            FindWindowW, SendMessageW, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
         },
     },
 };
@@ -123,4 +127,55 @@ pub unsafe fn inject_dll(pid: u32, dll: &str) -> Result<(), windows::core::Error
     )?;
 
     Ok(())
+}
+
+pub unsafe fn find_window(name: &str) -> Result<(Pin<Box<[u16]>>, HWND), windows::core::Error> {
+    let wstring: Pin<Box<[u16]>> = Pin::new(widestring::encode_utf16(name.chars()).collect());
+    let result = FindWindowW(None, PCWSTR(wstring.as_ptr()))?;
+    Ok((wstring, result))
+}
+
+pub unsafe fn click(window_handle: HWND, position: (isize, isize)) {
+    let lparam = LPARAM(position.0 | position.1 << 16);
+    SendMessageW(window_handle, WM_MOUSEMOVE, None, lparam);
+    SendMessageW(
+        window_handle,
+        WM_LBUTTONDOWN,
+        WPARAM(MK_LBUTTON.0.try_into().unwrap()),
+        lparam,
+    );
+    SendMessageW(window_handle, WM_LBUTTONUP, None, lparam);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_enum_process() -> Result<(), windows::core::Error> {
+        let processes = unsafe { enum_processes()? };
+        assert!(!processes.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_enum_process_modules() -> Result<(), windows::core::Error> {
+        let processes = unsafe { enum_processes()? };
+        assert!(!processes.is_empty());
+        let process = processes
+            .iter()
+            .find(|p| p.name.ends_with("explorer.exe"))
+            .unwrap();
+        let modules = unsafe { enum_process_modules(process.pid)? };
+        assert!(!modules.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_window_click() -> Result<(), windows::core::Error> {
+        let (_, window_handle) = unsafe { find_window("Structural Macro")? };
+        assert_ne!(window_handle, HWND::default());
+        unsafe { click(window_handle, (5, 5)) };
+        Ok(())
+    }
 }

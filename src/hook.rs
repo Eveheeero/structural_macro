@@ -1,20 +1,9 @@
-use windows::{
-    core::PCWSTR,
-    Win32::{
-        Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM},
-        System::{
-            LibraryLoader::LoadLibraryW,
-            ProcessStatus::EnumProcesses,
-            SystemServices::MK_LBUTTON,
-            Threading::{GetCurrentThreadId, OpenProcess},
-        },
-        UI::{
-            Controls::WM_MOUSELEAVE,
-            WindowsAndMessaging::{
-                CallNextHookEx, FindWindowExW, FindWindowW, SendMessageW, SetWindowsHookExW,
-                UnhookWindowsHookEx, HHOOK, MSG, WH_GETMESSAGE, WM_LBUTTONDOWN, WM_LBUTTONUP,
-                WM_MOUSEMOVE,
-            },
+use windows::Win32::{
+    Foundation::{LPARAM, LRESULT, WPARAM},
+    UI::{
+        Controls::WM_MOUSELEAVE,
+        WindowsAndMessaging::{
+            CallNextHookEx, SetWindowsHookExW, UnhookWindowsHookEx, HHOOK, MSG, WH_GETMESSAGE,
         },
     },
 };

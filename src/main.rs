@@ -6,7 +6,6 @@ use iced::{
 };
 
 pub fn main() -> iced::Result {
-    let _ = unsafe { hook::Hook::new() };
     iced::application("Structural Macro", update, view).run()
 }
 
