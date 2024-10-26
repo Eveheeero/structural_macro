@@ -3,6 +3,15 @@ name = "structural_macro"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "structural_macro"
+path = "src/main.rs"
+
+[lib]
+name = "structural_macro_dll"
+path = "dll/lib.rs"
+crate-type = ["cdylib"]
+
 [dependencies]
 iced = "0.13.1"
 widestring = "1.1.0"

@@ -88,18 +88,12 @@ pub unsafe fn inject_dll(pid: u32, dll: &str) -> Result<(), windows::core::Error
     let process = OpenProcess(PROCESS_ALL_ACCESS, false, pid)?;
     let data: Vec<u8> = encode_ascii_with_zero(dll);
     let dll: PCSTR = PCSTR(data.as_ptr());
-    let written_address = VirtualAllocEx(
-        process,
-        None,
-        std::mem::size_of_val(&dll),
-        MEM_COMMIT,
-        PAGE_READWRITE,
-    );
+    let written_address = VirtualAllocEx(process, None, data.len(), MEM_COMMIT, PAGE_READWRITE);
     WriteProcessMemory(
         process,
         written_address,
         dll.0 as *const core::ffi::c_void,
-        std::mem::size_of_val(&dll),
+        data.len(),
         None,
     )?;
     let loading = CreateRemoteThread(
@@ -115,12 +109,7 @@ pub unsafe fn inject_dll(pid: u32, dll: &str) -> Result<(), windows::core::Error
         None,
     )?;
     WaitForSingleObject(loading, INFINITE);
-    VirtualFreeEx(
-        process,
-        written_address,
-        std::mem::size_of_val(&dll),
-        MEM_RELEASE,
-    )?;
+    VirtualFreeEx(process, written_address, data.len(), MEM_RELEASE)?;
 
     Ok(())
 }
@@ -199,6 +188,19 @@ mod tests {
         let window_handle = unsafe { find_window("Structural Macro").unwrap() };
         assert_ne!(window_handle, HWND::default());
         unsafe { click(window_handle, (5, 5)) };
+        Ok(())
+    }
+
+    #[test]
+    fn test_inject_dll() -> Result<(), windows::core::Error> {
+        let processes = unsafe { enum_processes()? };
+        assert!(!processes.is_empty());
+        let process = processes
+            .iter()
+            .find(|p| p.name.ends_with("structural_macro.exe"))
+            .unwrap();
+        let dll = r#"structural_macro_dll.dll"#;
+        unsafe { inject_dll(process.pid, dll)? };
         Ok(())
     }
 }
