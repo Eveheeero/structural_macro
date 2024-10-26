@@ -11,7 +11,7 @@ use windows::{
                     TH32CS_SNAPPROCESS,
                 },
             },
-            LibraryLoader::{GetModuleHandleA, GetProcAddress},
+            LibraryLoader::{GetModuleHandleA, GetProcAddress, LoadLibraryW},
             Memory::{VirtualAllocEx, VirtualFreeEx, MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE},
             ProcessStatus::EnumProcessModules,
             SystemServices::MK_LBUTTON,
@@ -109,7 +109,7 @@ pub unsafe fn inject_dll(pid: u32, dll: &str) -> Result<(), windows::core::Error
         None,
     )?;
     WaitForSingleObject(loading, INFINITE);
-    VirtualFreeEx(process, written_address, 0, MEM_RELEASE);
+    VirtualFreeEx(process, written_address, 0, MEM_RELEASE)?;
 
     Ok(())
 }
@@ -132,6 +132,11 @@ pub unsafe fn click(window_handle: HWND, position: (isize, isize)) {
         lparam,
     );
     SendMessageW(window_handle, WM_LBUTTONUP, None, lparam);
+}
+
+pub unsafe fn load_library(path: &str) -> Result<HMODULE, windows::core::Error> {
+    let path = encode_utf16_with_zero(path);
+    LoadLibraryW(PCWSTR(path.as_ptr()))
 }
 
 #[inline]
