@@ -109,7 +109,7 @@ pub unsafe fn inject_dll(pid: u32, dll: &str) -> Result<(), windows::core::Error
         None,
     )?;
     WaitForSingleObject(loading, INFINITE);
-    VirtualFreeEx(process, written_address, data.len(), MEM_RELEASE)?;
+    VirtualFreeEx(process, written_address, 0, MEM_RELEASE);
 
     Ok(())
 }
