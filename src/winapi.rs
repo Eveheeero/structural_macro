@@ -1,4 +1,4 @@
-use std::{pin::Pin, rc::Rc};
+use std::rc::Rc;
 use windows::{
     core::{PCSTR, PCWSTR},
     Win32::{
@@ -51,10 +51,7 @@ pub unsafe fn enum_processes() -> Result<Vec<WindowProcess>, windows::core::Erro
 fn to_process(pe: &PROCESSENTRY32W) -> WindowProcess {
     WindowProcess {
         pid: pe.th32ProcessID,
-        name: String::from_utf16(&pe.szExeFile)
-            .unwrap()
-            .trim_end_matches(char::from(0))
-            .to_string(),
+        name: decode_utf16_with_zero(&pe.szExeFile),
         moudle_id: pe.th32ModuleID,
     }
 }
@@ -89,8 +86,7 @@ pub unsafe fn enum_process_modules(
 }
 pub unsafe fn inject_dll(pid: u32, dll: &str) -> Result<(), windows::core::Error> {
     let process = OpenProcess(PROCESS_ALL_ACCESS, false, pid)?;
-    let mut data: Vec<u8> = dll.into();
-    data.push(b'\0');
+    let data: Vec<u8> = encode_ascii_with_zero(dll);
     let dll: PCSTR = PCSTR(data.as_ptr());
     let written_address = VirtualAllocEx(
         process,
@@ -129,10 +125,12 @@ pub unsafe fn inject_dll(pid: u32, dll: &str) -> Result<(), windows::core::Error
     Ok(())
 }
 
-pub unsafe fn find_window(name: &str) -> Result<(Pin<Box<[u16]>>, HWND), windows::core::Error> {
-    let wstring: Pin<Box<[u16]>> = Pin::new(widestring::encode_utf16(name.chars()).collect());
-    let result = FindWindowW(None, PCWSTR(wstring.as_ptr()))?;
-    Ok((wstring, result))
+pub unsafe fn find_window(name: &str) -> Option<HWND> {
+    let wstring: Vec<u16> = encode_utf16_with_zero(name);
+    let Ok(result) = FindWindowW(None, PCWSTR(wstring.as_ptr())) else {
+        return None;
+    };
+    Some(result)
 }
 
 pub unsafe fn click(window_handle: HWND, position: (isize, isize)) {
@@ -145,6 +143,31 @@ pub unsafe fn click(window_handle: HWND, position: (isize, isize)) {
         lparam,
     );
     SendMessageW(window_handle, WM_LBUTTONUP, None, lparam);
+}
+
+#[inline]
+fn encode_utf16_with_zero(s: &str) -> Vec<u16> {
+    widestring::encode_utf16(s.chars().chain(std::iter::once('\0'))).collect()
+}
+#[inline]
+fn decode_utf16_with_zero(s: &[u16]) -> String {
+    String::from_utf16_lossy(s)
+        .trim_end_matches(char::from(0))
+        .to_string()
+}
+#[inline]
+fn encode_ascii_with_zero(s: &str) -> Vec<u8> {
+    s.as_bytes()
+        .iter()
+        .chain(std::iter::once(&0))
+        .cloned()
+        .collect()
+}
+#[inline]
+fn decode_ascii_with_zero(s: &[u8]) -> String {
+    String::from_utf8_lossy(s)
+        .trim_end_matches(char::from(0))
+        .to_string()
 }
 
 #[cfg(test)]
@@ -173,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_window_click() -> Result<(), windows::core::Error> {
-        let (_, window_handle) = unsafe { find_window("Structural Macro")? };
+        let window_handle = unsafe { find_window("Structural Macro").unwrap() };
         assert_ne!(window_handle, HWND::default());
         unsafe { click(window_handle, (5, 5)) };
         Ok(())
